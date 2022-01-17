@@ -1,0 +1,1 @@
+# actuator-stroke-design
