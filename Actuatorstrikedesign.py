@@ -1,23 +1,10 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Mon Jan 17 21:53:53 2022
-
-@author: grunt
-"""
-
-# -*- coding: utf-8 -*-
-"""
-Created on Fri Dec 24 11:19:44 2021
-
-@author: raraJ
-"""
 import numpy as np
 from EasyBeam import Beam2D
 from scipy import optimize
 import matplotlib.pyplot as plt
 
 b = 10          # mm
-h = 20          # mm
+h = 2          # mm
 # p = -10     # N
 l = 1000        # mm
 E = 210000      # MPa
@@ -29,49 +16,40 @@ nEl=100
 
 xBeam=np.linspace(0,l,nEl+1)
 
-#box with corner located at
-# length of box "xx" and distance for the origin "yy"
-xx = 200
-yy = 250
-dd = 400
-lx = int((xx/l)*nEl)
-ly = int(((l-xx)/l)*nEl)
+#obstacle @(x0,y0)
+x0=600
+y0=50
+m= 50 #margin 
+y1=250 # target Coordinates (x1,y1)>(x0,y0)
+# pivot point max Deformation at yy
+xx = (x0+m)
+yy = y0
 
-x1=800
-y1=3000
-i=int((xx/l) * nEl)
-#slope
-# theta=yy/xx
-# p=(2*E*I*theta)/((l*xx) - xx**2)
-
-p=(yy*6*E*I)/((xx**2) *(3*xx - xx))
-
-# linearly increasing
+linearly increasing
+p=np.zeros(nEl+1)
+p=(yy*6*E*I)/(2*xx**3)
+p1=(y1*6*E*I)/((xx**2)*(3*l-xx))
 y = np.zeros(nEl+1)
 for i in range(nEl+1):
-      if xBeam[i] <= xx:
+    # if xBeam[i] <=xx:    
         y[i]=((p*(xBeam[i])**2) / (6*E*I))*((3*xx - xBeam[i]))
-      elif xBeam[i] > xx :
-            y[i]=((p*xx**2)/ (6*E*I))*((3*xBeam[i] - xx))
+    # else:
+    #   y[i]=((p1*(xx)**2) / (6*E*I))*((3*xBeam[i]-xx))
 
+lx=int((xx/l)*nEl)
 # y cordinate
-theta2=(x1-xx)/(y1-yy)
-
-p2=(2*E*I*theta2)/(( (y[nEl])**2 ))
-
 # linearly increasing
 ytarget = np.zeros((nEl+1,))
-ytarget [:] = y
-z=y[i+1:]
+ytarget [:lx+1] = y[:lx+1]
+R=np.linspace(yy,y1, (nEl+1-lx))
+ytarget [lx+1:] = R[1:]
 
 # x cordianates
 xtarget = np.linspace(0,l,nEl+1)
-# xtarget[i+1:]=xx+((p2)/(6*E*I))*(3*(y[nEl])*z**2 - z**3)
 
 #target Shape
 ShapeTarget = np.zeros(((nEl + 1) * 2,))
 ShapeTarget[1::2] = ytarget
-# ShapeTarget[0::2] = xtarget
 
 J=np.vstack([(xBeam),(ytarget)])
 plt.plot(xtarget,J[1,:])
@@ -115,44 +93,122 @@ def CalcStroke(nodesAct):
             uMat[:, ii] = Cantilever.u
             ii += 1
 
-    dofControl = []
+   dofControl = []
     nodesControl = range(Cantilever.nN)
     for i in range(Cantilever.nN):
         dofControl.append(nodesControl[i] * 3)
         dofControl.append(nodesControl[i] * 3 + 1)
     H = uMat[dofControl, :]
-
-    res = optimize.lsq_linear(H, ShapeTarget)
-    uStroke = res.x
+    uStroke = np.linalg.lstsq(H, ShapeTarget, rcond=None)[0]
 
     # Validate uStroke and calculate RMSE
     Cantilever = SetupFE()
     for jj in range(nAct):
         Cantilever.Disp.append(
-            [nodesAct[jj], [uStroke[jj * 2], uStroke[jj * 2 + 1], "f"]]
+            [nodesAct[jj], [uStroke[jj * 2], uStroke[jj * 2 + 1], 'f']]
         )
     Cantilever.StaticAnalysis()
-    # Plot results
-    # Cantilever.PlotMesh()
-    # Cantilever.PlotDisplacement('mag')
-    Cantilever.PlotStress(stress='max')
+    # Cantilever.PlotMesh(
+    #     FontMag=1, NodeNumber=False, ElementNumber=False, Loads=False, BC=False
+    # )
+    Cantilever.PlotStress(stress='max', scale=20)
     eRMS = np.sqrt(
-        np.sum((Cantilever.u[dofControl] - ShapeTarget) ** 2) / len(ShapeTarget)
+        np.sum((Cantilever.u[dofControl] - ShapeTarget) ** 2)
+        / len(ShapeTarget)
     )
-    return eRMS, uStroke, Cantilever.F
+    FAct_dof = Cantilever.F[dofControl]
+    FAct = np.zeros(len(nodesAct),)
+    for i in range(len(nodesAct)):
+        FAct[i] = np.sqrt(FAct_dof[i*2]**2+FAct_dof[i*2+1]**2)
+    FActMax = np.max(FAct)
+    return eRMS, uStroke, FActMax, np.max(Cantilever.sigmaMax)
+
 
 # definition of actuators
 nodesAct = [[]] * 4
 eRMS = [[]] * 4
 uStroke = [[]] * 4
 F = [[]] * 4
-nodesAct[0] = np.array(range(100, 102, 5)).tolist()
+sigmaMax = [[]]*4
+nodesAct[0] = np.array(range(101, 102, 1)).tolist()
 #nodesAct[3] = np.array(range(1, nEl, 1)).tolist()
-nodesAct[1] = np.array(range(51, 102, 25)).tolist()
-nodesAct[2] = np.array(range(75,  102, 26)).tolist()
-nodesAct[3] = np.array(range(61, 102, 20)).tolist()
+nodesAct[1] = np.array(range(65, 102, 36)).tolist()
+nodesAct[2] = np.array(range(65,  102, 18)).tolist()
+nodesAct[3] = np.array(range(56, 102, 15)).tolist()
 
 # Parameter study
+nActList =[]
 for i in range(len(nodesAct)):
-    eRMS[i], uStroke[i], F[i] = CalcStroke(nodesAct[i])
+    nActList.append(len(nodesAct[i]))
+    eRMS[i], uStroke[i], F[i], sigmaMax[i] = CalcStroke(nodesAct[i])
     print(eRMS[i])
+
+def adjust_spines(ax, spines, color):
+    for loc, spine in ax.spines.items():
+        if loc in spines:
+            spine.set_position(
+                ('outward', 24)
+            )
+            if loc == 'bottom':
+                spine.set_color('black')
+            else:
+                spine.set_color(color)
+
+fig = plt.figure()
+ax = fig.add_subplot()
+ax2 = ax.twinx()
+ax3 = ax.twinx()
+ax.plot(nActList, eRMS, ".-", color="tab:blue")
+ax2.plot(nActList, sigmaMax, ".-", color="tab:orange")
+ax3.plot(nActList, F, ".-", color="tab:green")
+
+plt.xticks(nActList)
+
+ax.yaxis.set_label_coords(-0.1, 1.035)
+ax2.yaxis.set_label_coords(1.1, 1.035)
+ax3.yaxis.set_label_coords(1.5, 1.035)
+
+ax.set_xlabel("number of actuators")
+ax.set_ylabel(
+    "root mean square\nerror $\\varepsilon_{\\mathrm{RMS}}$",
+    rotation='horizontal',
+    horizontalalignment='right',
+    verticalalignment='baseline',
+)
+ax2.set_ylabel(
+    "maximum stress\n$\\sigma_{\\max}$ [MPa]",
+    rotation='horizontal',
+    horizontalalignment='left',
+    verticalalignment='baseline',
+)
+ax3.set_ylabel(
+    "maximum actuator\nforce $F_{\mathrm{act},\\max}$ [N]",
+    rotation='horizontal',
+    horizontalalignment='left',
+    verticalalignment='baseline',
+)
+ax.set_xlim([np.min(nActList), np.max(nActList)])
+ax.set_ylim([0, np.max(eRMS)])
+ax2.set_ylim([0, np.max(sigmaMax)])
+ax3.set_ylim([0, np.max(F)])
+ax.tick_params(direction='in')
+ax2.tick_params(direction='in')
+ax3.tick_params(direction='in')
+adjust_spines(ax, ['bottom', 'left'], 'tab:blue')
+adjust_spines(ax2, ['right'], 'tab:orange')
+adjust_spines(ax3, ['right'], 'tab:green')
+ax.tick_params(axis='y', colors='tab:blue')
+ax2.tick_params(axis='y', colors='tab:orange')
+ax3.tick_params(axis='y', colors='tab:green')
+ax.yaxis.label.set_color('tab:blue')
+ax2.yaxis.label.set_color('tab:orange')
+ax3.yaxis.label.set_color('tab:green')
+ax3.spines["right"].set_position(("axes", 1.5))
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
+ax2.spines['bottom'].set_visible(False)
+ax2.spines['top'].set_visible(False)
+ax2.spines['left'].set_visible(False)
+ax3.spines['bottom'].set_visible(False)
+ax3.spines['top'].set_visible(False)
+ax3.spines['left'].set_visible(False)
